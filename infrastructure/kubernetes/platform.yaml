@@ -1,0 +1,166 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ecommerce-secrets
+  namespace: ecommerce
+type: Opaque
+stringData:
+  postgres-password: change-me
+  rabbitmq-password: change-me
+  jwt-secret: replace-with-a-long-random-secret
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-data
+  namespace: ecommerce
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: ecommerce
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: postgres } }
+  template:
+    metadata: { labels: { app: postgres } }
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:17-alpine
+          ports: [{ containerPort: 5432 }]
+          env:
+            - { name: POSTGRES_USER, value: ecommerce }
+            - { name: POSTGRES_DB, value: catalog }
+            - name: POSTGRES_PASSWORD
+              valueFrom: { secretKeyRef: { name: ecommerce-secrets, key: postgres-password } }
+          volumeMounts: [{ name: data, mountPath: /var/lib/postgresql/data }]
+          readinessProbe: { exec: { command: [sh, -c, pg_isready -U ecommerce] }, periodSeconds: 10 }
+          resources: { requests: { cpu: 100m, memory: 256Mi }, limits: { cpu: 500m, memory: 1Gi } }
+      volumes: [{ name: data, persistentVolumeClaim: { claimName: postgres-data } }]
+---
+apiVersion: v1
+kind: Service
+metadata: { name: postgres, namespace: ecommerce }
+spec: { selector: { app: postgres }, ports: [{ port: 5432, targetPort: 5432 }] }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: redis, namespace: ecommerce }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: redis } }
+  template:
+    metadata: { labels: { app: redis } }
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          ports: [{ containerPort: 6379 }]
+          readinessProbe: { exec: { command: [redis-cli, ping] }, periodSeconds: 10 }
+          resources: { requests: { cpu: 50m, memory: 64Mi }, limits: { cpu: 250m, memory: 256Mi } }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: redis, namespace: ecommerce }
+spec: { selector: { app: redis }, ports: [{ port: 6379, targetPort: 6379 }] }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: rabbitmq, namespace: ecommerce }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: rabbitmq } }
+  template:
+    metadata: { labels: { app: rabbitmq } }
+    spec:
+      containers:
+        - name: rabbitmq
+          image: rabbitmq:4-management-alpine
+          ports: [{ containerPort: 5672 }, { containerPort: 15672 }]
+          env:
+            - { name: RABBITMQ_DEFAULT_USER, value: ecommerce }
+            - name: RABBITMQ_DEFAULT_PASS
+              valueFrom: { secretKeyRef: { name: ecommerce-secrets, key: rabbitmq-password } }
+          readinessProbe: { exec: { command: [rabbitmq-diagnostics, -q, ping] }, periodSeconds: 10 }
+          resources: { requests: { cpu: 100m, memory: 256Mi }, limits: { cpu: 500m, memory: 512Mi } }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: rabbitmq, namespace: ecommerce }
+spec: { selector: { app: rabbitmq }, ports: [{ name: amqp, port: 5672, targetPort: 5672 }, { name: management, port: 15672, targetPort: 15672 }] }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: { name: service-config, namespace: ecommerce }
+data:
+  ASPNETCORE_URLS: http://+:8080
+  RabbitMQ__Host: rabbitmq
+  RabbitMQ__Username: ecommerce
+  Redis__ConnectionString: redis:6379
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: identity-api, namespace: ecommerce }
+spec: { replicas: 2, selector: { matchLabels: { app: identity-api } }, template: { metadata: { labels: { app: identity-api } }, spec: { containers: [{ name: identity-api, image: enterprise-ecommerce/identity-api:1.0.0, ports: [{ containerPort: 8080 }], envFrom: [{ configMapRef: { name: service-config } }], env: [{ name: ConnectionStrings__IdentityDb, value: Host=postgres;Port=5432;Database=identity;Username=ecommerce;Password=$(POSTGRES_PASSWORD) }, { name: Jwt__Secret, valueFrom: { secretKeyRef: { name: ecommerce-secrets, key: jwt-secret } } }], readinessProbe: { httpGet: { path: /health, port: 8080 } }, resources: { requests: { cpu: 100m, memory: 128Mi }, limits: { cpu: 500m, memory: 512Mi } } }] } } }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: identity-api, namespace: ecommerce }
+spec: { selector: { app: identity-api }, ports: [{ port: 80, targetPort: 8080 }] }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: inventory-api, namespace: ecommerce }
+spec: { replicas: 2, selector: { matchLabels: { app: inventory-api } }, template: { metadata: { labels: { app: inventory-api } }, spec: { containers: [{ name: inventory-api, image: enterprise-ecommerce/inventory-api:1.0.0, ports: [{ containerPort: 8080 }], envFrom: [{ configMapRef: { name: service-config } }], readinessProbe: { httpGet: { path: /health, port: 8080 } }, resources: { requests: { cpu: 100m, memory: 128Mi }, limits: { cpu: 500m, memory: 512Mi } } }] } } }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: inventory-api, namespace: ecommerce }
+spec: { selector: { app: inventory-api }, ports: [{ port: 80, targetPort: 8080 }] }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: orders-api, namespace: ecommerce }
+spec: { replicas: 2, selector: { matchLabels: { app: orders-api } }, template: { metadata: { labels: { app: orders-api } }, spec: { containers: [{ name: orders-api, image: enterprise-ecommerce/orders-api:1.0.0, ports: [{ containerPort: 8080 }], envFrom: [{ configMapRef: { name: service-config } }], readinessProbe: { httpGet: { path: /health, port: 8080 } }, resources: { requests: { cpu: 100m, memory: 128Mi }, limits: { cpu: 500m, memory: 512Mi } } }] } } }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: orders-api, namespace: ecommerce }
+spec: { selector: { app: orders-api }, ports: [{ port: 80, targetPort: 8080 }] }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: payments-api, namespace: ecommerce }
+spec: { replicas: 2, selector: { matchLabels: { app: payments-api } }, template: { metadata: { labels: { app: payments-api } }, spec: { containers: [{ name: payments-api, image: enterprise-ecommerce/payments-api:1.0.0, ports: [{ containerPort: 8080 }], envFrom: [{ configMapRef: { name: service-config } }], readinessProbe: { httpGet: { path: /health, port: 8080 } }, resources: { requests: { cpu: 100m, memory: 128Mi }, limits: { cpu: 500m, memory: 512Mi } } }] } } }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: payments-api, namespace: ecommerce }
+spec: { selector: { app: payments-api }, ports: [{ port: 80, targetPort: 8080 }] }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: notifications-api, namespace: ecommerce }
+spec: { replicas: 2, selector: { matchLabels: { app: notifications-api } }, template: { metadata: { labels: { app: notifications-api } }, spec: { containers: [{ name: notifications-api, image: enterprise-ecommerce/notifications-api:1.0.0, ports: [{ containerPort: 8080 }], envFrom: [{ configMapRef: { name: service-config } }], readinessProbe: { httpGet: { path: /health, port: 8080 } }, resources: { requests: { cpu: 100m, memory: 128Mi }, limits: { cpu: 500m, memory: 512Mi } } }] } } }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: notifications-api, namespace: ecommerce }
+spec: { selector: { app: notifications-api }, ports: [{ port: 80, targetPort: 8080 }] }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: cart-api, namespace: ecommerce }
+spec: { replicas: 2, selector: { matchLabels: { app: cart-api } }, template: { metadata: { labels: { app: cart-api } }, spec: { containers: [{ name: cart-api, image: enterprise-ecommerce/cart-api:1.0.0, ports: [{ containerPort: 8080 }], envFrom: [{ configMapRef: { name: service-config } }], readinessProbe: { httpGet: { path: /health, port: 8080 } }, resources: { requests: { cpu: 100m, memory: 128Mi }, limits: { cpu: 500m, memory: 512Mi } } }] } } }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: cart-api, namespace: ecommerce }
+spec: { selector: { app: cart-api }, ports: [{ port: 80, targetPort: 8080 }] }

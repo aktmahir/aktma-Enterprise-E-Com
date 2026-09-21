@@ -1,0 +1,169 @@
+services:
+  identity-api:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/service-api.Dockerfile
+      args:
+        PROJECT: src/Services/Identity/Identity.Api/Identity.Api.csproj
+        DLL: Identity.Api.dll
+    environment:
+      ASPNETCORE_URLS: http://+:8080
+      ConnectionStrings__IdentityDb: Host=postgres;Port=5432;Database=identity;Username=ecommerce;Password=ecommerce_dev_only
+      Jwt__Secret: ${JWT_SECRET:-dev-only-change-me-before-deployment-32-chars}
+    ports: ["5129:8080"]
+    depends_on: { postgres: { condition: service_healthy } }
+  inventory-api:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/service-api.Dockerfile
+      args:
+        PROJECT: src/Services/Inventory/Inventory.Api/Inventory.Api.csproj
+        DLL: Inventory.Api.dll
+    environment:
+      ASPNETCORE_URLS: http://+:8080
+      ConnectionStrings__InventoryDb: Host=postgres;Port=5432;Database=inventory;Username=ecommerce;Password=ecommerce_dev_only
+      RabbitMQ__Host: rabbitmq
+      RabbitMQ__Username: ecommerce
+      RabbitMQ__Password: ecommerce_dev_only
+    ports: ["5130:8080"]
+    depends_on: { postgres: { condition: service_healthy }, rabbitmq: { condition: service_healthy } }
+  orders-api:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/service-api.Dockerfile
+      args:
+        PROJECT: src/Services/Orders/Orders.Api/Orders.Api.csproj
+        DLL: Orders.Api.dll
+    environment:
+      ASPNETCORE_URLS: http://+:8080
+      ConnectionStrings__OrderDb: Host=postgres;Port=5432;Database=orders;Username=ecommerce;Password=ecommerce_dev_only
+      RabbitMQ__Host: rabbitmq
+      RabbitMQ__Username: ecommerce
+      RabbitMQ__Password: ecommerce_dev_only
+    ports: ["5213:8080"]
+    depends_on: { postgres: { condition: service_healthy }, rabbitmq: { condition: service_healthy } }
+  payments-api:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/service-api.Dockerfile
+      args:
+        PROJECT: src/Services/Payments/Payments.Api/Payments.Api.csproj
+        DLL: Payments.Api.dll
+    environment:
+      ASPNETCORE_URLS: http://+:8080
+      ConnectionStrings__PaymentDb: Host=postgres;Port=5432;Database=payments;Username=ecommerce;Password=ecommerce_dev_only
+      RabbitMQ__Host: rabbitmq
+      RabbitMQ__Username: ecommerce
+      RabbitMQ__Password: ecommerce_dev_only
+    ports: ["5153:8080"]
+    depends_on: { postgres: { condition: service_healthy }, rabbitmq: { condition: service_healthy } }
+  notifications-api:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/service-api.Dockerfile
+      args:
+        PROJECT: src/Services/Notifications/Notifications.Api/Notifications.Api.csproj
+        DLL: Notifications.Api.dll
+    environment:
+      ASPNETCORE_URLS: http://+:8080
+      ConnectionStrings__NotificationDb: Host=postgres;Port=5432;Database=notifications;Username=ecommerce;Password=ecommerce_dev_only
+      RabbitMQ__Host: rabbitmq
+      RabbitMQ__Username: ecommerce
+      RabbitMQ__Password: ecommerce_dev_only
+    ports: ["5179:8080"]
+    depends_on: { postgres: { condition: service_healthy }, rabbitmq: { condition: service_healthy } }
+  cart-api:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/service-api.Dockerfile
+      args:
+        PROJECT: src/Services/Cart/Cart.Api/Cart.Api.csproj
+        DLL: Cart.Api.dll
+    environment:
+      ASPNETCORE_URLS: http://+:8080
+      Redis__ConnectionString: redis:6379
+    ports: ["5242:8080"]
+    depends_on: { redis: { condition: service_healthy } }
+  gateway:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/service-api.Dockerfile
+      args:
+        PROJECT: src/Gateway/ApiGateway/ApiGateway.csproj
+        DLL: ApiGateway.dll
+    environment:
+      ASPNETCORE_URLS: http://+:8080
+      Services__Catalog: http://catalog-api:8080
+      Services__Identity: http://identity-api:8080
+      Services__Orders: http://orders-api:8080
+    ports: ["5101:8080"]
+    depends_on: [catalog-api, identity-api, orders-api]
+  catalog-api:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/catalog-api.Dockerfile
+    environment:
+      ASPNETCORE_URLS: http://+:8080
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__CatalogDb: Host=postgres;Port=5432;Database=catalog;Username=ecommerce;Password=ecommerce_dev_only
+      RabbitMQ__Host: rabbitmq
+      RabbitMQ__Username: ecommerce
+      RabbitMQ__Password: ecommerce_dev_only
+    ports:
+      - "5013:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+  storefront:
+    build:
+      context: ./frontend/ecommerce-web
+      dockerfile: ../../infrastructure/docker/storefront.Dockerfile
+    ports:
+      - "5173:80"
+    depends_on:
+      - catalog-api
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: ecommerce
+      POSTGRES_PASSWORD: ecommerce_dev_only
+      POSTGRES_DB: catalog
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./infrastructure/postgres/init.sql:/docker-entrypoint-initdb.d/01-databases.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ecommerce -d catalog"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    user: "0:0"
+    environment:
+      RABBITMQ_DEFAULT_USER: ecommerce
+      RABBITMQ_DEFAULT_PASS: ecommerce_dev_only
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+volumes:
+  postgres-data:

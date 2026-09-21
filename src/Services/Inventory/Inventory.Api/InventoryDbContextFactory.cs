@@ -1,0 +1,3 @@
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Design;
+public sealed class InventoryDbContextFactory : IDesignTimeDbContextFactory<InventoryDbContext> { public InventoryDbContext CreateDbContext(string[] args) => new(new DbContextOptionsBuilder<InventoryDbContext>().UseNpgsql("Host=localhost;Port=5432;Database=inventory;Username=ecommerce;Password=ecommerce_dev_only").Options); }
