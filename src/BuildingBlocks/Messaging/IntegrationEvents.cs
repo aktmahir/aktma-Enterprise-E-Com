@@ -34,9 +34,10 @@ public sealed class RabbitMqEventPublisher(IConfiguration configuration, ILogger
         await EnsureConnectedAsync(cancellationToken);
         var envelope = new MessageEnvelope<T>(Guid.NewGuid(), correlationId, typeof(T).Name, 1, DateTimeOffset.UtcNow, data);
         var body = JsonSerializer.SerializeToUtf8Bytes(envelope, new JsonSerializerOptions(JsonSerializerDefaults.Web));
-        await channel!.ExchangeDeclareAsync(exchange, ExchangeType.Topic, durable: true, cancellationToken: cancellationToken);
+        var activeChannel = channel ?? throw new InvalidOperationException("RabbitMQ channel is unavailable after connecting.");
+        await activeChannel.ExchangeDeclareAsync(exchange, ExchangeType.Topic, durable: true, cancellationToken: cancellationToken);
         var properties = new BasicProperties { Persistent = true, MessageId = envelope.MessageId.ToString(), CorrelationId = correlationId.ToString(), Type = envelope.EventType, ContentType = "application/json" };
-        await channel.BasicPublishAsync(exchange, routingKey, mandatory: false, properties, body, cancellationToken);
+        await activeChannel.BasicPublishAsync(exchange, routingKey, mandatory: false, properties, body, cancellationToken);
         logger.LogInformation("Published {EventType} {MessageId} with correlation {CorrelationId}", envelope.EventType, envelope.MessageId, correlationId);
     }
 
