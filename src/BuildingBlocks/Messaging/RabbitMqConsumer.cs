@@ -26,19 +26,38 @@ public sealed class RabbitMqConsumer(
             UserName = configuration["RabbitMQ:Username"] ?? "ecommerce",
             Password = configuration["RabbitMQ:Password"] ?? "ecommerce_dev_only"
         };
-        connection = await factory.CreateConnectionAsync(stoppingToken);
-        channel = await connection.CreateChannelAsync(cancellationToken: stoppingToken);
-        await channel.ExchangeDeclareAsync("commerce.events", ExchangeType.Topic, durable: true, cancellationToken: stoppingToken);
-        await channel.ExchangeDeclareAsync("commerce.events.dlx", ExchangeType.Topic, durable: true, cancellationToken: stoppingToken);
-        await channel.QueueDeclareAsync(queue, durable: true, exclusive: false, autoDelete: false, cancellationToken: stoppingToken);
-        await channel.QueueDeclareAsync($"{queue}.dlq", durable: true, exclusive: false, autoDelete: false, cancellationToken: stoppingToken);
-        await channel.QueueBindAsync($"{queue}.dlq", "commerce.events.dlx", "#", cancellationToken: stoppingToken);
-        foreach (var routingKey in routingKeys) await channel.QueueBindAsync(queue, "commerce.events", routingKey, cancellationToken: stoppingToken);
-        await channel.BasicQosAsync(0, 1, false, stoppingToken);
-        var consumer = new AsyncEventingBasicConsumer(channel);
-        consumer.ReceivedAsync += async (_, args) => await ProcessAsync(args, stoppingToken);
-        await channel.BasicConsumeAsync(queue, autoAck: false, consumer, stoppingToken);
-        await Task.Delay(Timeout.InfiniteTimeSpan, stoppingToken);
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            try
+            {
+                connection = await factory.CreateConnectionAsync(stoppingToken);
+                channel = await connection.CreateChannelAsync(cancellationToken: stoppingToken);
+                await channel.ExchangeDeclareAsync("commerce.events", ExchangeType.Topic, durable: true, cancellationToken: stoppingToken);
+                await channel.ExchangeDeclareAsync("commerce.events.dlx", ExchangeType.Topic, durable: true, cancellationToken: stoppingToken);
+                await channel.QueueDeclareAsync(queue, durable: true, exclusive: false, autoDelete: false, cancellationToken: stoppingToken);
+                await channel.QueueDeclareAsync($"{queue}.dlq", durable: true, exclusive: false, autoDelete: false, cancellationToken: stoppingToken);
+                await channel.QueueBindAsync($"{queue}.dlq", "commerce.events.dlx", "#", cancellationToken: stoppingToken);
+                foreach (var routingKey in routingKeys) await channel.QueueBindAsync(queue, "commerce.events", routingKey, cancellationToken: stoppingToken);
+                await channel.BasicQosAsync(0, 1, false, stoppingToken);
+                var consumer = new AsyncEventingBasicConsumer(channel);
+                consumer.ReceivedAsync += async (_, args) => await ProcessAsync(args, stoppingToken);
+                await channel.BasicConsumeAsync(queue, autoAck: false, consumer, stoppingToken);
+                await Task.Delay(Timeout.InfiniteTimeSpan, stoppingToken);
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                break;
+            }
+            catch (Exception exception)
+            {
+                logger.LogError(exception, "RabbitMQ consumer {Queue} could not connect; retrying.", queue);
+                if (channel is not null) await channel.DisposeAsync();
+                if (connection is not null) await connection.DisposeAsync();
+                channel = null;
+                connection = null;
+                await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
+            }
+        }
     }
 
     private async Task ProcessAsync(BasicDeliverEventArgs args, CancellationToken cancellationToken)
