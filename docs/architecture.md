@@ -4,7 +4,8 @@
 
 ```mermaid
 flowchart LR
-  Web[React storefront] --> Catalog[Catalog API]
+  Web[React storefront] --> Gateway[API Gateway]
+  Gateway --> Catalog[Catalog API]
   Catalog --> CatalogDb[(Catalog database)]
   Orders[Order service] <--> Bus[(RabbitMQ)]
   Inventory[Inventory service] <--> Bus
@@ -12,15 +13,15 @@ flowchart LR
   Cart[Cart service] --> Redis[(Redis)]
 ```
 
-The repository currently contains the first complete Catalog slice. Catalog data is accessed through an application port and its infrastructure adapter; controllers/endpoints do not own business logic. The repository adapter is intentionally in-memory until the EF Core/PostgreSQL persistence slice is added.
+The repository contains runnable API slices for Catalog, Identity, Cart, Inventory, Orders, Payments, Notifications, and the Gateway. Catalog uses an application port and infrastructure adapter; the workflow services use EF Core database-per-service persistence and hosted RabbitMQ consumers.
 
 ## Decisions
 
 - **Database per service:** prevents accidental coupling and makes ownership explicit.
 - **CQRS with MediatR:** command/query handlers create a testable application boundary without forcing every method through a mediator.
 - **RabbitMQ for workflows:** inventory and payment are asynchronous because an order cannot safely span service transactions.
-- **Outbox next:** state changes and published integration events will be coordinated through an outbox table before multi-service checkout is enabled.
+- **Outbox:** Orders and Inventory persist outgoing events before publishing them, while consumers record message IDs for idempotency.
 
 ## Delivery Order
 
-Catalog persistence and contract tests come next, followed by Identity, Inventory, Cart, Orders, Payments, Notifications, Gateway, and Kubernetes deployment. Each service should be completed as a tested vertical slice before the order workflow is connected.
+The local demo path is Docker Compose with PostgreSQL, Redis, and RabbitMQ. Kubernetes deployment is kept as separate portfolio material. The next hardening steps are integration coverage, authenticated order ownership, and compensation tests for cancellation and payment failure.

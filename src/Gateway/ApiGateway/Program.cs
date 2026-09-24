@@ -18,6 +18,12 @@ app.MapPost("/api/v1/orders", async (HttpRequest request, IHttpClientFactory cli
 	var response = await clients.CreateClient().PostAsync($"{baseUrl}/api/v1/orders", content, cancellationToken);
 	return Results.Content(await response.Content.ReadAsStringAsync(cancellationToken), "application/json", statusCode: (int)response.StatusCode);
 });
+app.MapGet("/api/v1/orders/{id:guid}", async (Guid id, IHttpClientFactory clients, IConfiguration configuration, CancellationToken cancellationToken) =>
+{
+	var baseUrl = configuration["Services:Orders"] ?? "http://localhost:5213";
+	var response = await clients.CreateClient().GetAsync($"{baseUrl}/api/v1/orders/{id}", cancellationToken);
+	return Results.Content(await response.Content.ReadAsStringAsync(cancellationToken), "application/json", statusCode: (int)response.StatusCode);
+});
 app.Run();
 static async Task<IResult> ProxyAsync(HttpRequest request, IHttpClientFactory clients, string baseUrl, string path, CancellationToken cancellationToken)
 {

@@ -8,10 +8,12 @@ services:
         DLL: Identity.Api.dll
     environment:
       ASPNETCORE_URLS: http://+:8080
-      ConnectionStrings__IdentityDb: Host=postgres;Port=5432;Database=identity;Username=ecommerce;Password=ecommerce_dev_only
+      ConnectionStrings__IdentityDb: Host=postgres;Port=5432;Database=identity;Username=${POSTGRES_USER:-ecommerce};Password=${POSTGRES_PASSWORD:-demo_password}
       Jwt__Secret: ${JWT_SECRET:-dev-only-change-me-before-deployment-32-chars}
     ports: ["5129:8080"]
     depends_on: { postgres: { condition: service_healthy } }
+    restart: on-failure
+    healthcheck: { test: ["CMD-SHELL", "bash -c '</dev/tcp/localhost/8080'"], interval: 5s, timeout: 3s, retries: 20 }
   inventory-api:
     build:
       context: .
@@ -21,12 +23,14 @@ services:
         DLL: Inventory.Api.dll
     environment:
       ASPNETCORE_URLS: http://+:8080
-      ConnectionStrings__InventoryDb: Host=postgres;Port=5432;Database=inventory;Username=ecommerce;Password=ecommerce_dev_only
+      ConnectionStrings__InventoryDb: Host=postgres;Port=5432;Database=inventory;Username=${POSTGRES_USER:-ecommerce};Password=${POSTGRES_PASSWORD:-demo_password}
       RabbitMQ__Host: rabbitmq
-      RabbitMQ__Username: ecommerce
-      RabbitMQ__Password: ecommerce_dev_only
+      RabbitMQ__Username: ${RABBITMQ_USER:-ecommerce}
+      RabbitMQ__Password: ${RABBITMQ_PASSWORD:-demo_password}
     ports: ["5130:8080"]
     depends_on: { postgres: { condition: service_healthy }, rabbitmq: { condition: service_healthy } }
+    restart: on-failure
+    healthcheck: { test: ["CMD-SHELL", "bash -c '</dev/tcp/localhost/8080'"], interval: 5s, timeout: 3s, retries: 20 }
   orders-api:
     build:
       context: .
@@ -36,12 +40,14 @@ services:
         DLL: Orders.Api.dll
     environment:
       ASPNETCORE_URLS: http://+:8080
-      ConnectionStrings__OrderDb: Host=postgres;Port=5432;Database=orders;Username=ecommerce;Password=ecommerce_dev_only
+      ConnectionStrings__OrderDb: Host=postgres;Port=5432;Database=orders;Username=${POSTGRES_USER:-ecommerce};Password=${POSTGRES_PASSWORD:-demo_password}
       RabbitMQ__Host: rabbitmq
-      RabbitMQ__Username: ecommerce
-      RabbitMQ__Password: ecommerce_dev_only
+      RabbitMQ__Username: ${RABBITMQ_USER:-ecommerce}
+      RabbitMQ__Password: ${RABBITMQ_PASSWORD:-demo_password}
     ports: ["5213:8080"]
     depends_on: { postgres: { condition: service_healthy }, rabbitmq: { condition: service_healthy } }
+    restart: on-failure
+    healthcheck: { test: ["CMD-SHELL", "bash -c '</dev/tcp/localhost/8080'"], interval: 5s, timeout: 3s, retries: 20 }
   payments-api:
     build:
       context: .
@@ -51,12 +57,14 @@ services:
         DLL: Payments.Api.dll
     environment:
       ASPNETCORE_URLS: http://+:8080
-      ConnectionStrings__PaymentDb: Host=postgres;Port=5432;Database=payments;Username=ecommerce;Password=ecommerce_dev_only
+      ConnectionStrings__PaymentDb: Host=postgres;Port=5432;Database=payments;Username=${POSTGRES_USER:-ecommerce};Password=${POSTGRES_PASSWORD:-demo_password}
       RabbitMQ__Host: rabbitmq
-      RabbitMQ__Username: ecommerce
-      RabbitMQ__Password: ecommerce_dev_only
+      RabbitMQ__Username: ${RABBITMQ_USER:-ecommerce}
+      RabbitMQ__Password: ${RABBITMQ_PASSWORD:-demo_password}
     ports: ["5153:8080"]
     depends_on: { postgres: { condition: service_healthy }, rabbitmq: { condition: service_healthy } }
+    restart: on-failure
+    healthcheck: { test: ["CMD-SHELL", "bash -c '</dev/tcp/localhost/8080'"], interval: 5s, timeout: 3s, retries: 20 }
   notifications-api:
     build:
       context: .
@@ -66,12 +74,14 @@ services:
         DLL: Notifications.Api.dll
     environment:
       ASPNETCORE_URLS: http://+:8080
-      ConnectionStrings__NotificationDb: Host=postgres;Port=5432;Database=notifications;Username=ecommerce;Password=ecommerce_dev_only
+      ConnectionStrings__NotificationDb: Host=postgres;Port=5432;Database=notifications;Username=${POSTGRES_USER:-ecommerce};Password=${POSTGRES_PASSWORD:-demo_password}
       RabbitMQ__Host: rabbitmq
-      RabbitMQ__Username: ecommerce
-      RabbitMQ__Password: ecommerce_dev_only
+      RabbitMQ__Username: ${RABBITMQ_USER:-ecommerce}
+      RabbitMQ__Password: ${RABBITMQ_PASSWORD:-demo_password}
     ports: ["5179:8080"]
     depends_on: { postgres: { condition: service_healthy }, rabbitmq: { condition: service_healthy } }
+    restart: on-failure
+    healthcheck: { test: ["CMD-SHELL", "bash -c '</dev/tcp/localhost/8080'"], interval: 5s, timeout: 3s, retries: 20 }
   cart-api:
     build:
       context: .
@@ -84,6 +94,8 @@ services:
       Redis__ConnectionString: redis:6379
     ports: ["5242:8080"]
     depends_on: { redis: { condition: service_healthy } }
+    restart: on-failure
+    healthcheck: { test: ["CMD-SHELL", "bash -c '</dev/tcp/localhost/8080'"], interval: 5s, timeout: 3s, retries: 20 }
   gateway:
     build:
       context: .
@@ -97,7 +109,12 @@ services:
       Services__Identity: http://identity-api:8080
       Services__Orders: http://orders-api:8080
     ports: ["5101:8080"]
-    depends_on: [catalog-api, identity-api, orders-api]
+    depends_on:
+      catalog-api: { condition: service_healthy }
+      identity-api: { condition: service_healthy }
+      orders-api: { condition: service_healthy }
+    restart: on-failure
+    healthcheck: { test: ["CMD-SHELL", "bash -c '</dev/tcp/localhost/8080'"], interval: 5s, timeout: 3s, retries: 20 }
   catalog-api:
     build:
       context: .
@@ -105,10 +122,10 @@ services:
     environment:
       ASPNETCORE_URLS: http://+:8080
       ASPNETCORE_ENVIRONMENT: Development
-      ConnectionStrings__CatalogDb: Host=postgres;Port=5432;Database=catalog;Username=ecommerce;Password=ecommerce_dev_only
+      ConnectionStrings__CatalogDb: Host=postgres;Port=5432;Database=catalog;Username=${POSTGRES_USER:-ecommerce};Password=${POSTGRES_PASSWORD:-demo_password}
       RabbitMQ__Host: rabbitmq
-      RabbitMQ__Username: ecommerce
-      RabbitMQ__Password: ecommerce_dev_only
+      RabbitMQ__Username: ${RABBITMQ_USER:-ecommerce}
+      RabbitMQ__Password: ${RABBITMQ_PASSWORD:-demo_password}
     ports:
       - "5013:8080"
     depends_on:
@@ -118,6 +135,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    restart: on-failure
+    healthcheck: { test: ["CMD-SHELL", "bash -c '</dev/tcp/localhost/8080'"], interval: 5s, timeout: 3s, retries: 20 }
   storefront:
     build:
       context: ./frontend/ecommerce-web
@@ -125,12 +144,13 @@ services:
     ports:
       - "5173:80"
     depends_on:
-      - catalog-api
+      gateway:
+        condition: service_healthy
   postgres:
     image: postgres:17-alpine
     environment:
-      POSTGRES_USER: ecommerce
-      POSTGRES_PASSWORD: ecommerce_dev_only
+      POSTGRES_USER: ${POSTGRES_USER:-ecommerce}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-demo_password}
       POSTGRES_DB: catalog
     ports:
       - "5432:5432"
@@ -153,10 +173,9 @@ services:
       retries: 10
   rabbitmq:
     image: rabbitmq:4-management-alpine
-    user: "0:0"
     environment:
-      RABBITMQ_DEFAULT_USER: ecommerce
-      RABBITMQ_DEFAULT_PASS: ecommerce_dev_only
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-ecommerce}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-demo_password}
     ports:
       - "5672:5672"
       - "15672:15672"

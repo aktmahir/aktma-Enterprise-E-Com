@@ -9,7 +9,20 @@ builder.Services.AddSingleton<IEventPublisher, RabbitMqEventPublisher>();
 builder.Services.AddHostedService<InventoryOutboxPublisher>();
 builder.Services.AddHostedService(sp => new RabbitMqConsumer(sp.GetRequiredService<IConfiguration>(), sp.GetRequiredService<ILogger<RabbitMqConsumer>>(), "inventory.workflow", ["order.created", "inventory.release-requested"], async (type, data, correlation, message, token) => await InventoryWorkflow.HandleAsync(sp, type, data, correlation, message, token)));
 var app = builder.Build();
-await using (var scope = app.Services.CreateAsyncScope()) await scope.ServiceProvider.GetRequiredService<InventoryDbContext>().Database.MigrateAsync();
+await using (var scope = app.Services.CreateAsyncScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<InventoryDbContext>();
+    await db.Database.MigrateAsync();
+    if (!await db.Items.AnyAsync())
+    {
+        db.Items.AddRange(
+            new InventoryItemEntity { ProductId = DemoProductIds.SolsticeLinenShirt, Available = 12 },
+            new InventoryItemEntity { ProductId = DemoProductIds.MoriCeramicSet, Available = 12 },
+            new InventoryItemEntity { ProductId = DemoProductIds.FieldNotes, Available = 20 },
+            new InventoryItemEntity { ProductId = DemoProductIds.ArcLeatherTote, Available = 8 });
+        await db.SaveChangesAsync();
+    }
+}
 app.MapOpenApi();
 app.MapGet("/health", () => Results.Ok(new { status = "healthy", service = "inventory" }));
 app.MapGet("/api/v1/inventory/{productId:guid}", async (Guid productId, InventoryDbContext db, CancellationToken cancellationToken) => await db.Items.AsNoTracking().SingleOrDefaultAsync(item => item.ProductId == productId, cancellationToken) is { } item ? Results.Ok(item) : Results.NotFound());
@@ -48,3 +61,11 @@ public sealed class InventoryOutboxPublisher(IServiceScopeFactory scopeFactory, 
     private Task PublishAsync(InventoryOutbox row, CancellationToken token) => row.EventType switch { nameof(InventoryReserved) => publisher.PublishAsync("commerce.events", row.RoutingKey, JsonSerializer.Deserialize<InventoryReserved>(row.Payload)!, row.CorrelationId, token), nameof(InventoryReservationFailed) => publisher.PublishAsync("commerce.events", row.RoutingKey, JsonSerializer.Deserialize<InventoryReservationFailed>(row.Payload)!, row.CorrelationId, token), nameof(InventoryReleased) => publisher.PublishAsync("commerce.events", row.RoutingKey, JsonSerializer.Deserialize<InventoryReleased>(row.Payload)!, row.CorrelationId, token), _ => throw new InvalidOperationException($"Unsupported inventory event {row.EventType}") };
 }
 public partial class Program;
+
+public static class DemoProductIds
+{
+    public static readonly Guid SolsticeLinenShirt = Guid.Parse("11111111-1111-1111-1111-111111111111");
+    public static readonly Guid MoriCeramicSet = Guid.Parse("22222222-2222-2222-2222-222222222222");
+    public static readonly Guid FieldNotes = Guid.Parse("33333333-3333-3333-3333-333333333333");
+    public static readonly Guid ArcLeatherTote = Guid.Parse("44444444-4444-4444-4444-444444444444");
+}

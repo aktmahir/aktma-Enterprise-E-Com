@@ -25,12 +25,12 @@ public sealed class Product
     public string Currency { get; private set; } = string.Empty;
     public bool IsActive { get; private set; }
 
-    public static Product Create(string name, string slug, string description, string category, decimal price, string currency = "USD")
+    public static Product Create(string name, string slug, string description, string category, decimal price, string currency = "USD", Guid? id = null)
     {
         if (string.IsNullOrWhiteSpace(name)) throw new ArgumentException("Product name is required.", nameof(name));
         if (string.IsNullOrWhiteSpace(slug)) throw new ArgumentException("Product slug is required.", nameof(slug));
         if (price < 0) throw new ArgumentOutOfRangeException(nameof(price));
 
-        return new Product(Guid.NewGuid(), name.Trim(), slug.Trim().ToLowerInvariant(), description.Trim(), category.Trim(), price, currency.Trim().ToUpperInvariant(), true);
+        return new Product(id ?? Guid.NewGuid(), name.Trim(), slug.Trim().ToLowerInvariant(), description.Trim(), category.Trim(), price, currency.Trim().ToUpperInvariant(), true);
     }
 }
